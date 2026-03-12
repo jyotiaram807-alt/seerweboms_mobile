@@ -1,0 +1,1 @@
+export const apiUrl = "https://oms.seerweberp.com/api";
