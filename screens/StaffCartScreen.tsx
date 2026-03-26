@@ -223,13 +223,13 @@ export default function StaffCartScreen() {
         </Text>
  
           <View className="flex-row items-center">
-            <Text className="px-4 py-1" onPress={() => handleDecrement(product.id)}>
-              <MinusCircle  size={20} color="red" />
-            </Text>
+            <TouchableOpacity className="px-4 py-1" onPress={() => handleDecrement(product.id)}>
+              <MinusCircle size={20} color="red" />
+            </TouchableOpacity>
             <Text className="mx-3">{qty}</Text>
-            <Text className=" px-4 py-1 " onPress={() => handleIncrement(product.id)}>
+            <TouchableOpacity className="px-4 py-1" onPress={() => handleIncrement(product.id)}>
               <PlusCircle size={20} color="green" />
-            </Text>
+            </TouchableOpacity>
           </View>
           <TouchableOpacity
           onPress={() =>

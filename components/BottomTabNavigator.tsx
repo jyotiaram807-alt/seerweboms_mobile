@@ -142,11 +142,11 @@ export default function BottomTabNavigator() {
             >
               <View className="relative">
                 {tab.icon(isActive)}
-                {tab.badge && tab.badge > 0 && (
+                {tab.badge !== undefined && tab.badge > 0 ? (
                   <View className="absolute -top-1 -right-2 bg-red-500 rounded-full min-w-[18px] h-[18px] items-center justify-center">
                     <Text className="text-white text-[10px] font-bold">{tab.badge > 99 ? '99+' : tab.badge}</Text>
                   </View>
-                )}
+                ) : null}
               </View>
               <Text 
                 style={{ color: isActive ? colors.primary : colors.textSecondary }}
