@@ -83,7 +83,7 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon, bgColor, change
         <View className="flex-row justify-between items-start mb-2">
           <Text className="text-gray-500 text-xs font-medium">{title}</Text>
           <View style={{ backgroundColor: bgColor }} className="p-2 rounded-xl">
-            <Text>{icon}</Text>
+            {icon}
           </View>
         </View>
         <Text className="text-2xl font-bold text-gray-900">{value}</Text>
@@ -167,6 +167,19 @@ const DonutChart: React.FC<DonutChartProps> = ({ data, size }) => {
 
 
 const LineChart: React.FC<LineChartProps> = ({ data, width, height, color, label }) => {
+
+  // Prevent crash if data is empty or only one point
+  if (!data || data.length < 2) {
+    return (
+      <View>
+        <Text className="text-sm font-semibold text-gray-700 mb-2">{label}</Text>
+        <View style={{ height, justifyContent: 'center', alignItems: 'center' }}>
+          <Text className="text-gray-400 text-xs">No chart data available</Text>
+        </View>
+      </View>
+    );
+  }
+
   const padding = { top: 20, right: 20, bottom: 40, left: 50 };
   const chartWidth = width - padding.left - padding.right;
   const chartHeight = height - padding.top - padding.bottom;
@@ -183,16 +196,24 @@ const LineChart: React.FC<LineChartProps> = ({ data, width, height, color, label
     month: d.month,
   }));
 
-  const linePath = points.map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`)).join(' ');
+  const linePath = points
+    .map((p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`))
+    .join(' ');
 
-  // Area path
-  const areaPath = `${linePath} L ${points[points.length - 1].x} ${padding.top + chartHeight} L ${points[0].x} ${padding.top + chartHeight} Z`;
+  const areaPath = `
+    ${linePath}
+    L ${points[points.length - 1].x} ${padding.top + chartHeight}
+    L ${points[0].x} ${padding.top + chartHeight}
+    Z
+  `;
 
   return (
     <View>
       <Text className="text-sm font-semibold text-gray-700 mb-2">{label}</Text>
+
       <Svg width={width} height={height}>
-        {/* Grid lines */}
+
+        {/* Grid Lines */}
         {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => (
           <G key={i}>
             <Line
@@ -203,6 +224,7 @@ const LineChart: React.FC<LineChartProps> = ({ data, width, height, color, label
               stroke="#e5e7eb"
               strokeWidth={1}
             />
+
             <SvgText
               x={padding.left - 8}
               y={padding.top + chartHeight * (1 - ratio) + 4}
@@ -210,21 +232,29 @@ const LineChart: React.FC<LineChartProps> = ({ data, width, height, color, label
               fontSize="9"
               fill="#9ca3af"
             >
-              {Math.round(maxValue * ratio / 1000)}k
+              {Math.round(maxValue * ratio)}
             </SvgText>
           </G>
         ))}
 
-        {/* Area fill */}
+        {/* Area */}
         <Path d={areaPath} fill={color} opacity={0.1} />
 
         {/* Line */}
         <Path d={linePath} stroke={color} strokeWidth={2.5} fill="none" />
 
-        {/* Points and labels */}
+        {/* Points */}
         {points.map((p, i) => (
           <G key={i}>
-            <Circle cx={p.x} cy={p.y} r={4} fill="white" stroke={color} strokeWidth={2} />
+            <Circle
+              cx={p.x}
+              cy={p.y}
+              r={4}
+              fill="white"
+              stroke={color}
+              strokeWidth={2}
+            />
+
             <SvgText
               x={p.x}
               y={height - 10}
@@ -236,6 +266,7 @@ const LineChart: React.FC<LineChartProps> = ({ data, width, height, color, label
             </SvgText>
           </G>
         ))}
+
       </Svg>
     </View>
   );
@@ -276,7 +307,7 @@ export default function RetailerDashboard() {
       const formatted = data.map((item: any) => ({
         id: item.id,
         items: item.items?.length || 0,
-        date: item.created_at,
+        date: item.createdAt,
         total: Number(item.total),
         status: item.status || "pending",
         storeName: item.retailerName || "",
@@ -335,8 +366,9 @@ export default function RetailerDashboard() {
   }
 
   useEffect(() => {
+    if (!user?.id) return;
 
-    fetch(`${apiUrl}/orders?retailerId=${user?.id}`)
+    fetch(`${apiUrl}/orders?retailerId=${user.id}`)
       .then(res => res.json())
       .then(data => {
 
@@ -467,7 +499,7 @@ export default function RetailerDashboard() {
 
   if (loading) {
     return (
-      <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
+      <SafeAreaView className="flex-1" edges={['top']}>
         <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color="#566de2" />
         </View>
@@ -476,7 +508,7 @@ export default function RetailerDashboard() {
   }
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50" edges={['top']}>
+    <SafeAreaView className="flex-1" edges={['top']}>
       <Navbar user={user?.name} />
       <RefreshWrapper onRefresh={handleRefresh}>
         <ScrollView className="flex-1 px-4 pt-4" showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
@@ -544,7 +576,7 @@ export default function RetailerDashboard() {
             {/* Monthly Order Trends */}
             <View className="bg-white rounded-2xl p-4 shadow-sm mb-4" data-testid="order-trends-chart">
               <LineChart
-                data={orderTrends.map(d => ({ month: d.month, value: d.orders * 1000 }))}
+                data={orderTrends.map(d => ({ month: d.month, value: d.orders }))}
                 width={chartWidth}
                 height={200}
                 color="#3b82f6"

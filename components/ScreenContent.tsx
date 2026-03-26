@@ -12,7 +12,7 @@ type ScreenContentProps = {
 export const ScreenContent = ({ title, path, children }: ScreenContentProps) => {
   return (
     <View className={styles.container}>
-      <Text className={styles.title}></Text>
+      <Text className={styles.title}>{title}</Text>
       <View className={styles.separator} />
       <EditScreenInfo path={path} />
       {children}
@@ -24,3 +24,4 @@ const styles = {
   separator: `h-[1px] my-7 w-4/5 bg-gray-200`,
   title: `text-xl font-bold`,
 };
+

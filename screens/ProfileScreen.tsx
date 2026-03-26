@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
   Linking,
+  TouchableOpacity,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
@@ -21,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Feather, Ionicons, MaterialIcons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import Navbar from 'components/Navbar';
+import { apiUrl } from 'apiurl';
 
 interface NotificationSettings {
   orderUpdates: boolean;
@@ -49,8 +51,13 @@ export default function ProfileScreen() {
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editField, setEditField] = useState<'name' | 'email' | 'phone' | 'password'>('name');
   const [editValue, setEditValue] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   const [saving, setSaving] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   
   // Notification Settings
   const [notifications, setNotifications] = useState<NotificationSettings>({
@@ -196,6 +203,58 @@ export default function ProfileScreen() {
     );
   }
 
+  const changePassword = async () => {
+    try {
+
+      if (!user) {
+        Alert.alert("Error", "User not found. Please login again.");
+        return;
+      }
+
+      if (!currentPassword || !editValue || !confirmPassword) {
+        Alert.alert("Error", "All password fields are required");
+        return;
+      }
+
+      if (editValue !== confirmPassword) {
+        Alert.alert("Error", "New password and confirm password do not match");
+        return;
+      }
+
+      const token = await AsyncStorage.getItem("token");
+
+      const response = await fetch(`${apiUrl}/change-password`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          user_id: user.id, // ✅ safe now
+          current_password: currentPassword,
+          new_password: editValue,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        Alert.alert("Error", data.message || "Password change failed");
+        return;
+      }
+
+      Alert.alert("Success", "Password changed successfully");
+
+      setCurrentPassword("");
+      setEditValue("");
+      setConfirmPassword("");
+
+    } catch (error) {
+      console.error(error);
+      Alert.alert("Error", "Something went wrong");
+    }
+  };
+
   return (
     <SafeAreaView style={{ flex: 1}} edges={['top']}>
       <Navbar user={user?.name} />
@@ -297,7 +356,6 @@ export default function ProfileScreen() {
             <Pressable 
               className="flex-row items-center p-4 border-b"
               style={{ borderColor: colors.border }}
-              onPress={() => handleEditProfile('phone')}
               data-testid="edit-phone-btn"
             >
               <View style={{ backgroundColor: '#d1fae5' }} className="p-2 rounded-xl mr-3">
@@ -307,7 +365,7 @@ export default function ProfileScreen() {
                 <Text style={{ color: colors.text }} className="font-medium">Phone Number</Text>
                 <Text style={{ color: colors.textSecondary }} className="text-sm">{user?.phone || 'Not set'}</Text>
               </View>
-              <Feather name="chevron-right" size={20} color={colors.textSecondary} />
+              {/* <Feather name="chevron-right" size={20} color={colors.textSecondary} /> */}
             </Pressable>
 
             <Pressable 
@@ -564,23 +622,8 @@ export default function ProfileScreen() {
               Edit {getFieldLabel(editField)}
             </Text>
 
-            <TextInput
-              style={{ 
-                backgroundColor: colors.inputBg, 
-                color: colors.text,
-                borderColor: colors.border 
-              }}
-              className="border rounded-xl px-4 py-3 mb-3"
-              placeholder={getFieldLabel(editField)}
-              placeholderTextColor={colors.textSecondary}
-              value={editValue}
-              onChangeText={setEditValue}
-              secureTextEntry={editField === 'password'}
-              keyboardType={editField === 'email' ? 'email-address' : editField === 'phone' ? 'phone-pad' : 'default'}
-              autoCapitalize={editField === 'email' ? 'none' : 'words'}
-            />
-
-            {editField === 'password' && (
+            {/* NORMAL FIELD */}
+            {editField !== 'password' && (
               <TextInput
                 style={{ 
                   backgroundColor: colors.inputBg, 
@@ -588,26 +631,128 @@ export default function ProfileScreen() {
                   borderColor: colors.border 
                 }}
                 className="border rounded-xl px-4 py-3 mb-3"
-                placeholder="Confirm Password"
+                placeholder={getFieldLabel(editField)}
                 placeholderTextColor={colors.textSecondary}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
+                value={editValue}
+                onChangeText={setEditValue}
+                keyboardType={
+                  editField === 'email'
+                    ? 'email-address'
+                    : editField === 'phone'
+                    ? 'phone-pad'
+                    : 'default'
+                }
+                autoCapitalize={editField === 'email' ? 'none' : 'words'}
               />
             )}
 
+            {/* PASSWORD CHANGE SECTION */}
+            {editField === 'password' && (
+              <>
+
+                {/* Current Password */}
+                <View className="relative mb-3">
+                  <TextInput
+                    style={{ 
+                      backgroundColor: colors.inputBg, 
+                      color: colors.text,
+                      borderColor: colors.border 
+                    }}
+                    className="border rounded-xl px-4 py-3 pr-12"
+                    placeholder="Enter Current Password"
+                    placeholderTextColor={colors.textSecondary}
+                    value={currentPassword}
+                    onChangeText={setCurrentPassword}
+                    secureTextEntry={!showCurrentPassword}
+                  />
+
+                  <TouchableOpacity
+                    onPress={() => setShowCurrentPassword(!showCurrentPassword)}
+                    style={{ position: 'absolute', right: 12, top: 14 }}
+                  >
+                    <Ionicons
+                      name={showCurrentPassword ? "eye-off" : "eye"}
+                      size={22}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* New Password */}
+                <View className="relative mb-3">
+                  <TextInput
+                    style={{ 
+                      backgroundColor: colors.inputBg, 
+                      color: colors.text,
+                      borderColor: colors.border 
+                    }}
+                    className="border rounded-xl px-4 py-3 pr-12"
+                    placeholder="New Password"
+                    placeholderTextColor={colors.textSecondary}
+                    value={editValue}
+                    onChangeText={setEditValue}
+                    secureTextEntry={!showPassword}
+                  />
+
+                  <TouchableOpacity
+                    onPress={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: 12, top: 14 }}
+                  >
+                    <Ionicons
+                      name={showPassword ? "eye-off" : "eye"}
+                      size={22}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Confirm Password */}
+                <View className="relative mb-3">
+                  <TextInput
+                    style={{ 
+                      backgroundColor: colors.inputBg, 
+                      color: colors.text,
+                      borderColor: colors.border 
+                    }}
+                    className="border rounded-xl px-4 py-3 pr-12"
+                    placeholder="Confirm Password"
+                    placeholderTextColor={colors.textSecondary}
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry={!showConfirmPassword}
+                  />
+
+                  <TouchableOpacity
+                    onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                    style={{ position: 'absolute', right: 12, top: 14 }}
+                  >
+                    <Ionicons
+                      name={showConfirmPassword ? "eye-off" : "eye"}
+                      size={22}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+              </>
+            )}
+
+            {/* BUTTONS */}
             <View className="flex-row mt-2">
               <Pressable
                 className="flex-1 py-3 rounded-xl mr-2"
                 style={{ backgroundColor: colors.border }}
                 onPress={() => setEditModalVisible(false)}
               >
-                <Text style={{ color: colors.text }} className="text-center font-semibold">Cancel</Text>
+                <Text style={{ color: colors.text }} className="text-center font-semibold">
+                  Cancel
+                </Text>
               </Pressable>
+
               <Pressable
                 className="flex-1 py-3 rounded-xl ml-2"
                 style={{ backgroundColor: colors.primary }}
-                onPress={handleSaveEdit}
+                onPress={changePassword}
                 disabled={saving}
               >
                 <Text className="text-center font-semibold text-white">

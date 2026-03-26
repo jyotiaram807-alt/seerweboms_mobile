@@ -7,7 +7,6 @@ import { ThemeProvider, useTheme } from './context/ThemeContext';
 
 import AuthLoadingScreen from './screens/AuthLoadingScreen';
 import LoginScreen from './screens/LoginScreen';
-import DealerDashboardScreen from './screens/dealer/DealerDashboardScreen';
 import AboutScreen from './screens/AboutScreen';
 import ContactScreen from './screens/ContactScreen';
 import ProfileScreen from './screens/ProfileScreen';
@@ -60,7 +59,6 @@ function AppContent() {
         >
           <Stack.Screen name="AuthLoading" component={AuthLoadingScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="DealerDashboard" component={DealerDashboardScreen} />
           <Stack.Screen name="RetailerDashboard" component={RetailerDashboardScreen} />
           <Stack.Screen name="RetailerHome" component={RetailerHomeScreen} />
           <Stack.Screen name="About" component={AboutScreen} />

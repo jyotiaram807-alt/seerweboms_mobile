@@ -10,7 +10,6 @@ import {
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { EventRegister } from "react-native-event-listeners";
-import { MinusCircle, PlusCircle } from "lucide-react-native";
 import { Feather } from "@expo/vector-icons";
 import BottomTabNavigator from "components/BottomTabNavigator";
 import OrderSummary from "components/OrderSummary";
@@ -218,11 +217,11 @@ export default function CartScreen() {
 
                 <View className="flex-row items-center">
                   <TouchableOpacity onPress={() => decrement(p.id)}>
-                    <MinusCircle size={20} color="gray" />
+                    <Text>-</Text>
                   </TouchableOpacity>
                   <Text className="mx-3">{cart[p.id]}</Text>
                   <TouchableOpacity onPress={() => increment(p.id)}>
-                    <PlusCircle size={20} color="gray" />
+                    <Text>+</Text>
                   </TouchableOpacity>
                 </View>
 
@@ -293,3 +292,4 @@ export default function CartScreen() {
     </SafeAreaView>
   );
 }
+
