@@ -283,19 +283,13 @@ export default function CartScreen() {
                   ₹{row.price.toLocaleString("en-IN")}
                 </Text>
 
-                <View className="flex-row items-center bg-gray-100 rounded-lg px-3 py-1">
-                  <TouchableOpacity
-                    onPress={() => decrement(row.productId, row.variantId, row.quantity)}
-                    className="px-2"
-                  >
-                    <Text className="text-xl text-gray-700">−</Text>
+                <View className="flex-row items-center">
+                  <TouchableOpacity onPress={() => decrement(p.id)}>
+                    <Text>-</Text>
                   </TouchableOpacity>
-                  <Text className="mx-4 text-base font-medium px-2">{row.quantity}</Text>
-                  <TouchableOpacity
-                    onPress={() => increment(row.productId, row.variantId, row.quantity)}
-                    className="px-2"
-                  >
-                    <Text className="text-xl text-gray-700">+</Text>
+                  <Text className="mx-3">{cart[p.id]}</Text>
+                  <TouchableOpacity onPress={() => increment(p.id)}>
+                    <Text>+</Text>
                   </TouchableOpacity>
                 </View>
 
