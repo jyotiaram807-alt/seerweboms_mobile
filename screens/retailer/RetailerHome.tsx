@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo, memo } from 'react';
 import {
   View,
   Text,
@@ -9,8 +9,8 @@ import {
   ScrollView,
   Image,
   Modal,
+  StyleSheet,
 } from 'react-native';
-import { EventRegister } from 'react-native-event-listeners';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import CustomAlert from 'components/CustomAlert';
 import BottomTabNavigator from 'components/BottomTabNavigator';
@@ -23,435 +23,407 @@ import RefreshWrapper from 'components/RefreshWrapper';
 import Voice from '@react-native-voice/voice';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Navbar from 'components/Navbar';
+import ProductCart, { Product, ProductVariant, CartItem } from 'components/ProductCart';
+import { useCart } from '../../context/CartContext';
 
-interface Product {
-  id: number;
-  name: string;
-  brand: string;
-  model: string;
-  price: number;
-  stock: number;
-  description: string;
-  dealerid: number;
-  created_at: string;
-  image?: string;
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface RenderItemProps {
+  item: Product;
+  cart: CartItem[];
+  onAddVariant: (productId: number, variant: ProductVariant, qty: number) => void;
+  onUpdateVariantQty: (productId: number, variantId: number, qty: number) => void;
+  onRemoveVariant: (productId: number, variantId: number) => void;
+  onAddSimple: (productId: number) => void;
+  onUpdateSimpleQty: (productId: number, qty: number) => void;
+  onRemoveSimple: (productId: number) => void;
 }
 
-const getImageSource = (img: string | null | undefined) => {
-  if (!img) return undefined;
-  if (img.startsWith('http')) return { uri: img };
-  return { uri: `${apiUrl}/${img}` };
-};
+// ─── Memoized product card ────────────────────────────────────────────────────
+// Defined outside the component so it is never recreated on re-render.
+// All data is passed via props — no closure over parent scope.
+
+const MemoProductCard = memo(({
+  item,
+  cart,
+  onAddVariant,
+  onUpdateVariantQty,
+  onRemoveVariant,
+  onAddSimple,
+  onUpdateSimpleQty,
+  onRemoveSimple,
+}: RenderItemProps) => (
+  <ProductCart
+    product={item}
+    showSize={Number(item.business_type_id) === 2}
+    cart={cart}
+    onAddVariant={onAddVariant}
+    onUpdateVariantQty={onUpdateVariantQty}
+    onRemoveVariant={onRemoveVariant}
+    onAddSimple={onAddSimple}
+    onUpdateSimpleQty={onUpdateSimpleQty}
+    onRemoveSimple={onRemoveSimple}
+  />
+));
+MemoProductCard.displayName = 'MemoProductCard';
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export default function RetailerHome() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
   const [products, setProducts] = useState<Product[]>([]);
   const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
   const [search, setSearch] = useState('');
-  const [cart, setCart] = useState<{ [key: number]: number }>({});
+  const { cart, addToCart, updateCartQuantity, removeFromCart } = useCart();
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [alertVisible, setAlertVisible] = useState(false);
   const [alertMsg, setAlertMsg] = useState('');
-  const [totalItems, setTotalItems] = useState(0);
-
-  // Image modal
   const [imageModalVisible, setImageModalVisible] = useState(false);
   const [modalImage, setModalImage] = useState<string | null>(null);
 
-  // Fetch user on mount
+  const isListening = useRef(false);
+
+  // ── Alert ───────────────────────────────────────────────────────────────────
+
+  const showAlert = useCallback((msg: string) => {
+    setAlertMsg(msg);
+    setAlertVisible(true);
+  }, []);
+
+  // ── Cart helpers ────────────────────────────────────────────────────────────
+
+  const handleAddVariant = useCallback(
+    (productId: number, variant: ProductVariant, qty: number) => {
+      addToCart({
+        productId,
+        variantId: variant.id,
+        size: variant.size,
+        color: variant.color,
+        price: variant.rate ?? variant.mrp ?? 0,
+        quantity: qty,
+        stock: variant.qty,
+      });
+      showAlert('Added to cart');
+    },
+    [addToCart, showAlert]
+  );
+
+  const handleUpdateVariantQty = useCallback(
+    (productId: number, variantId: number, qty: number) => {
+      if (qty <= 0) {
+        removeFromCart(productId, variantId);
+      } else {
+        updateCartQuantity(productId, variantId, Math.min(qty, 999));
+      }
+    },
+    [removeFromCart, updateCartQuantity]
+  );
+
+  const handleRemoveVariant = useCallback(
+    (productId: number, variantId: number) => {
+      removeFromCart(productId, variantId);
+    },
+    [removeFromCart]
+  );
+
+  const handleAddSimple = useCallback(
+    (productId: number) => {
+      const product = products.find((p) => p.id === productId);
+      if (!product || product.stock === 0) return;
+      addToCart({
+        productId,
+        variantId: 0,
+        price: product.price,
+        quantity: 1,
+        stock: product.stock,
+      });
+      showAlert('Added to cart');
+    },
+    [products, addToCart, showAlert]
+  );
+
+  const handleUpdateSimpleQty = useCallback(
+    (productId: number, qty: number) => {
+      if (qty <= 0) {
+        removeFromCart(productId, 0);
+      } else {
+        updateCartQuantity(productId, 0, Math.min(qty, 999));
+      }
+    },
+    [removeFromCart, updateCartQuantity]
+  );
+
+  const handleRemoveSimple = useCallback(
+    (productId: number) => {
+      removeFromCart(productId, 0);
+    },
+    [removeFromCart]
+  );
+
+  // ── Memoized totals ─────────────────────────────────────────────────────────
+
+  const totalCartItems = useMemo(
+    () => cart.reduce((s, c) => s + c.quantity, 0),
+    [cart]
+  );
+
+  const cartTotalPrice = useMemo(
+    () => cart.reduce((s, c) => s + c.price * c.quantity, 0).toLocaleString('en-IN'),
+    [cart]
+  );
+
+  // ── Auth guard ──────────────────────────────────────────────────────────────
+
   useEffect(() => {
     const fetchUser = async () => {
       const userString = await AsyncStorage.getItem('user');
-      if (!userString) {
-        navigation.replace('Login');
-        return;
-      }
-      const user = JSON.parse(userString);
-      if (user.role !== 'retailer') {
-        navigation.replace('DealerDashboard');
-        return;
-      }
+      if (!userString) { navigation.replace('Login'); return; }
+      const parsed = JSON.parse(userString);
+      if (parsed.role !== 'retailer') { navigation.replace('DealerDashboard'); return; }
     };
     fetchUser();
-  }, []);
+  }, [navigation]);
 
-  const showAlert = (msg: string) => {
-    setAlertMsg(msg);
-    setAlertVisible(true);
-  };
+  // ── Fetch products ──────────────────────────────────────────────────────────
 
-  // Fetch user, cart, products
+  const fetchProducts = useCallback(async (dealerId: number) => {
+    if (!dealerId) return;
+    setLoading(true);
+    try {
+      const response = await fetch(`${apiUrl}/products?dealerid=${dealerId}`);
+      const data = await response.json();
+
+      const formatted: Product[] = (data.products || data).map((item: any) => {
+        let attrs: Record<string, string> = {};
+        if (item.attributes) {
+          attrs = typeof item.attributes === 'string'
+            ? JSON.parse(item.attributes)
+            : item.attributes;
+        }
+        return {
+          id: Number(item.id),
+          name: item.name || '',
+          brand: item.brand || attrs.brand || '',
+          model: item.model || attrs.model || '',
+          price: Number(item.price),
+          stock: Number(item.stock),
+          description: item.description || '',
+          dealerid: Number(item.dealerid),
+          image: item.image || null,
+          attributes: attrs,
+          business_type_id: item.business_type_id ?? null,
+          variants: item.variants ?? [],
+        };
+      });
+
+      setProducts(formatted);
+      setFilteredProducts(formatted);
+
+      // Use local `formatted`, not `products` state (still stale at this point)
+      const validIds = new Set(formatted.map((p) => p.id));
+      const staleIds = cart
+        .filter((c) => !validIds.has(c.productId))
+        .map((c) => ({ productId: c.productId, variantId: c.variantId }));
+
+      if (staleIds.length > 0) {
+        setTimeout(() => {
+          staleIds.forEach(({ productId, variantId }) =>
+            removeFromCart(productId, variantId)
+          );
+        }, 0);
+      }
+    } catch (err) {
+      console.error('Error fetching products:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [cart, removeFromCart]);
+
+  // ── Boot ────────────────────────────────────────────────────────────────────
+
   useEffect(() => {
-    const fetchUserAndProducts = async () => {
+    const boot = async () => {
       const userData = await AsyncStorage.getItem('user');
-      const storedCart = await AsyncStorage.getItem('cart');
-
       if (userData) {
         const parsed = JSON.parse(userData);
         setUser(parsed);
         fetchProducts(parsed.dealer_id);
       }
-
-      if (storedCart) {
-        const parsedCart = JSON.parse(storedCart);
-        const cartWithNumberKeys: Record<number, number> = {};
-        Object.keys(parsedCart).forEach((key) => {
-          cartWithNumberKeys[Number(key)] = parsedCart[key];
-        });
-        setCart(cartWithNumberKeys);
-
-        const total = Object.values(cartWithNumberKeys).reduce((sum, qty) => sum + qty, 0);
-        setTotalItems(total);
-      }
     };
-
-    fetchUserAndProducts();
+    boot();
+  // fetchProducts is stable via useCallback; omitting it from deps
+  // avoids an infinite loop on cart changes triggering a re-fetch.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Listen to cart changes
-  useEffect(() => {
-    const listener = EventRegister.addEventListener('cartChanged', (totalCount: number) => {
-      setTotalItems(totalCount);
+  // ── Search ──────────────────────────────────────────────────────────────────
 
-      AsyncStorage.getItem('cart').then((storedCart) => {
-        if (storedCart) {
-          const parsedCart = JSON.parse(storedCart);
-          const cartWithNumberKeys: Record<number, number> = {};
-          Object.keys(parsedCart).forEach((key) => {
-            cartWithNumberKeys[Number(key)] = parsedCart[key];
-          });
-          setCart(cartWithNumberKeys);
-        } else {
-          setCart({});
-        }
-      });
-    }) as string;
-
-    return () => {
-      EventRegister.removeEventListener(listener);
-    };
-  }, []);
-
-  // Fetch products
-const fetchProducts = async (dealerId: number) => {
-  try {
-    const response = await fetch(`${apiUrl}/products?dealerid=${dealerId}`);
-    const data = await response.json();
-
-    const formattedProducts = data.map((item: any) => ({
-      id: Number(item.id),
-      name: item.name,
-      brand: item.brand,
-      model: item.model,
-      price: Number(item.price),
-      stock: item.stock,
-      description: item.description,
-      dealerid: item.dealerid,
-      created_at: item.created_at,
-      image: item.image,
-    }));
-
-    setProducts(formattedProducts);
-    setFilteredProducts(formattedProducts);
-
-    // 🔥 FILTER CART HERE
-    const storedCart = await AsyncStorage.getItem('cart');
-    if (storedCart) {
-      const parsedCart = JSON.parse(storedCart);
-      
-      const validProductIds = new Set<number>(formattedProducts.map((p: Product) => p.id));
-      const cleanedCart: Record<number, number> = {};
-
-      Object.keys(parsedCart).forEach((key) => {
-        const id = Number(key);
-        if (validProductIds.has(id)) {
-          cleanedCart[id] = parsedCart[key];
-        }
-      });
-
-      await AsyncStorage.setItem('cart', JSON.stringify(cleanedCart));
-      setCart(cleanedCart);
-
-      const total = Object.values(cleanedCart)
-        .reduce((sum, qty) => sum + qty, 0);
-      setTotalItems(total);
-    }
-
-  } catch (err) {
-    console.error('Error fetching products:', err);
-  } finally {
-    setLoading(false);
-  }
-};
-
-
-  // Search filter
-  const handleSearch = (query: string) => {
+  const handleSearch = useCallback((query: string) => {
     setSearch(query);
-    const lowerQuery = query.toLowerCase();
-    const filtered = products.filter(
-      (p) =>
-        p.name.toLowerCase().includes(lowerQuery) ||
-        p.brand.toLowerCase().includes(lowerQuery) ||
-        p.model.toLowerCase().includes(lowerQuery)
+    const q = query.toLowerCase();
+    setFilteredProducts(
+      products.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          (p.brand ?? '').toLowerCase().includes(q) ||
+          (p.model ?? '').toLowerCase().includes(q) ||
+          Object.values(p.attributes ?? {}).some((v) =>
+            String(v).toLowerCase().includes(q)
+          )
+      )
     );
-    setFilteredProducts(filtered);
-  };
+  }, [products]);
 
-  // Update cart
-  const updateCart = async (updatedCart: Record<number, number>) => {
-    setCart(updatedCart);
+  // ── Voice ───────────────────────────────────────────────────────────────────
 
-    const totalCount = Object.values(updatedCart).reduce((sum, qty) => sum + qty, 0);
-    setTotalItems(totalCount);
+  // processVoiceProduct needs products & handlers — define it before the effect
+  const processVoiceProduct = useCallback((spokenText: string) => {
+    const cleaned = spokenText.toLowerCase().replace(/[^a-z0-9 ]/g, '');
+    const product =
+      products.find(
+        (p) =>
+          cleaned.includes((p.brand ?? '').toLowerCase()) &&
+          cleaned.includes((p.model ?? '').toLowerCase())
+      ) || products.find((p) => cleaned.includes(p.name.toLowerCase()));
 
-    const stringified: Record<string, number> = {};
-    Object.keys(updatedCart).forEach((key) => {
-      stringified[key] = updatedCart[Number(key)];
-    });
-
-    await AsyncStorage.setItem('cart', JSON.stringify(stringified));
-  };
-
-  const incrementQty = (productId: number) => {
-    const updated = { ...cart, [productId]: (cart[productId] || 0) + 1 };
-    updateCart(updated);
-  };
-
-  const decrementQty = (productId: number) => {
-    const updated = { ...cart };
-
-    if (updated[productId]) {
-      updated[productId] -= 1;
-      if (updated[productId] <= 0) delete updated[productId];
+    if (!product) {
+      showAlert(`Product not found: ${spokenText}`);
+      return;
     }
-
-    updateCart(updated);
-  };
-
-  const addToCart = (productId: number) => {
-    const qty = cart[productId] || 0;
-
-    if (qty > 0) {
-      EventRegister.emit('cartChanged', Object.values(cart).reduce((s, n) => s + n, 0));
-      showAlert('✔️ Added to cart!');
-    } else {
-      showAlert('⚠️ Select quantity first!');
-    }
-  };
-
-  const isListening = useRef(false);
+    handleAddSimple(product.id);
+    showAlert(`Added: ${product.name}`);
+  }, [products, handleAddSimple, showAlert]);
 
   useEffect(() => {
-    Voice.onSpeechResults = onSpeechResults;
-    Voice.onSpeechError = onSpeechError;
-
-    return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
+    Voice.onSpeechResults = (event: any) => {
+      const spokenText = event.value?.[0];
+      if (!spokenText) return;
+      processVoiceProduct(spokenText);
+      isListening.current = false;
     };
-  }, []);
+    Voice.onSpeechError = (event: any) => {
+      console.error('Speech error:', event);
+      showAlert('Voice error');
+      isListening.current = false;
+    };
+    return () => { Voice.destroy().then(Voice.removeAllListeners); };
+  }, [processVoiceProduct, showAlert]);
 
-
-  const handleVoiceCommand = async () => {
+  const handleVoiceCommand = useCallback(async () => {
     if (isListening.current) return;
-
     try {
       isListening.current = true;
       await Voice.start('en-IN');
       showAlert('🎤 Listening… say product name');
-    } catch (e) {
-      console.error(e);
+    } catch {
       showAlert('Voice recognition failed');
       isListening.current = false;
     }
-  };
+  }, [showAlert]);
 
-  const onSpeechResults = (event: any) => {
-    const spokenText = event.value?.[0];
-    if (!spokenText) return;
+  // ── Render item ─────────────────────────────────────────────────────────────
 
-    console.log('🎧 Voice:', spokenText);
-    processVoiceProduct(spokenText);
+  const renderItem = useCallback(({ item }: { item: Product }) => (
+    <MemoProductCard
+      item={item}
+      cart={cart}
+      onAddVariant={handleAddVariant}
+      onUpdateVariantQty={handleUpdateVariantQty}
+      onRemoveVariant={handleRemoveVariant}
+      onAddSimple={handleAddSimple}
+      onUpdateSimpleQty={handleUpdateSimpleQty}
+      onRemoveSimple={handleRemoveSimple}
+    />
+  ), [
+    cart,
+    handleAddVariant,
+    handleUpdateVariantQty,
+    handleRemoveVariant,
+    handleAddSimple,
+    handleUpdateSimpleQty,
+    handleRemoveSimple,
+  ]);
 
-    isListening.current = false;
-  };
+  // ── Refresh ─────────────────────────────────────────────────────────────────
 
-  const onSpeechError = (event: any) => {
-    console.error('Speech error:', event);
-    showAlert('Voice error');
-    isListening.current = false;
-  };
+  const handleRefresh = useCallback(async () => {
+    if (user?.dealer_id) await fetchProducts(user.dealer_id);
+  }, [user, fetchProducts]);
 
-
-  const processVoiceProduct = (spokenText: string) => {
-    const cleaned = spokenText
-      .toLowerCase()
-      .replace(/[^a-z0-9 ]/g, '');
-
-    const product = products.find(p =>
-      cleaned.includes(p.brand.toLowerCase()) &&
-      cleaned.includes(p.model.toLowerCase())
-    ) || products.find(p =>
-      cleaned.includes(p.name.toLowerCase())
-    );
-
-    if (!product) {
-      showAlert(`❌ Product not found: ${spokenText}`);
-      return;
-    }
-
-    // 🔥 Add directly with qty = 1
-    const updated = { ...cart, [product.id]: (cart[product.id] || 0) + 1 };
-    updateCart(updated);
-
-    showAlert(`✅ Added: ${product.name}`);
-  };
-
-
-
-
-  // Render product card
-   const renderItem = ({ item }: { item: Product }) => (
-    <View className="bg-white p-3 mb-3 rounded-xl shadow-sm">
-      <View className="flex-row">
-        {item.image ? (
-          <Pressable
-            onPress={() => {
-              setModalImage(getImageSource(item.image)?.uri || null);
-              setImageModalVisible(true);
-            }}
-          >
-            <Image
-              source={getImageSource(item.image)}
-              className="w-24 h-24 rounded-lg mb-3 mr-4"
-              resizeMode="cover"
-            />
-          </Pressable>
-        ) : null}
-
-        <View className="flex-1">
-          {/* Product Name */}
-          <Text
-            className="text-md font-semibold text-gray-900"
-            numberOfLines={2}
-          >
-            {item.name}
-          </Text>
-
-          {/* Model */}
-          <Text className="text-sm text-gray-500 mt-0.5">
-            {item.model}
-          </Text>
-
-          {/* Price */}
-          <Text className="text-base font-bold text-blue-600 mt-1.5">
-            ₹ {item.price.toLocaleString('en-IN')}
-          </Text>
-
-          {/* Actions */}
-          <View className="flex-row items-center justify-between mt-3">
-            {/* Quantity Controls */}
-            <View className="flex-row items-center bg-gray-100 rounded-md px-4 py-1.5">
-              <Pressable
-                onPress={() => decrementQty(item.id)}
-                className="px-2"
-                hitSlop={8}
-              >
-                <Text className="text-2xl text-gray-700">−</Text>
-              </Pressable>
-
-              <Text className="text-lg font-medium mx-2 text-gray-900">
-                {cart[item.id] ?? 0}
-              </Text>
-
-              <Pressable
-                onPress={() => incrementQty(item.id)}
-                className="px-2"
-                hitSlop={8}
-              >
-                <Text className="text-2xl text-gray-700">+</Text>
-              </Pressable>
-            </View>
-
-            {/* Add Button */}
-            <Pressable
-              onPress={() => addToCart(item.id)}
-              className="bg-blue-600 px-4 py-2 rounded-md"
-            >
-              <Text className="text-sm font-semibold text-white">
-                ADD
-              </Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </View>
-  );
-
-  const handleRefresh = async () => {
-    if (user) fetchProducts(user.dealer_id);
-  };
+  // ── JSX ─────────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView className="flex-1" edges={['top']}>
+    <SafeAreaView style={styles.safeArea} edges={['top']}>
       <Navbar user={user?.name} />
-      {/* IMAGE MODAL */}
+
+      {/* Image zoom modal */}
       <Modal
         visible={imageModalVisible}
         transparent
         animationType="fade"
         onRequestClose={() => setImageModalVisible(false)}
       >
-        <Pressable
-          style={{
-            flex: 1,
-            backgroundColor: 'rgba(0,0,0,0.8)',
-            justifyContent: 'center',
-            alignItems: 'center',
-          }}
-          onPress={() => setImageModalVisible(false)}
-        >
+        <Pressable style={styles.modalOverlay} onPress={() => setImageModalVisible(false)}>
           <Image
             source={{ uri: modalImage! }}
-            style={{ width: '90%', height: '70%', borderRadius: 10 }}
+            style={styles.modalImage}
             resizeMode="contain"
           />
         </Pressable>
       </Modal>
 
       <RefreshWrapper onRefresh={handleRefresh}>
-        <ScrollView className="flex-1 px-4 pt-4" contentContainerStyle={{ paddingBottom: 100 }}>
-          <Text className="text-2xl font-bold mb-2">Browse Products</Text>
-          <Text className="text-gray-500 mb-4">Add phones to your cart for bulk ordering</Text>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
+          <Text style={styles.pageTitle}>Browse Products</Text>
+          <Text style={styles.pageSubtitle}>Add products to your cart for bulk ordering</Text>
 
-          <View className="flex-row items-center mb-4">
+          {/* Cart summary strip */}
+          {totalCartItems > 0 && (
+            <View style={styles.cartStrip}>
+              <View style={styles.cartStripBadge}>
+                <Text style={styles.cartStripBadgeText}>{totalCartItems}</Text>
+              </View>
+              <Text style={styles.cartStripText}>
+                {totalCartItems} item{totalCartItems !== 1 ? 's' : ''} in cart
+              </Text>
+              <Text style={styles.cartStripTotal}>₹{cartTotalPrice}</Text>
+            </View>
+          )}
+
+          {/* Search bar */}
+          <View style={styles.searchRow}>
             <TextInput
               placeholder="Search by name, brand, or model..."
               value={search}
               onChangeText={handleSearch}
-              className="flex-1 border border-gray-300 rounded-lg px-4 py-2 bg-white"
-              placeholderTextColor="#666"
+              style={styles.searchInput}
+              placeholderTextColor="#9CA3AF"
             />
-            <Pressable
-              onPress={handleVoiceCommand}
-              className="bg-blue-600 p-3 rounded-full ml-2"
-              data-testid="voice-search-btn"
-            >
-              <Ionicons name="mic" size={20} color="#fff" />
-            </Pressable>
+            
           </View>
 
+          {/* Products */}
           {loading ? (
-            <ActivityIndicator size="large" color="#5b74f1" />
+            <ActivityIndicator size="large" color="#185FA5" style={{ marginTop: 40 }} />
           ) : filteredProducts.length === 0 ? (
-            <Text className="text-center text-gray-500 mt-20">No products found.</Text>
+            <Text style={styles.emptyText}>No products found.</Text>
           ) : (
             <FlatList
               data={filteredProducts}
               keyExtractor={(item) => item.id.toString()}
               renderItem={renderItem}
               scrollEnabled={false}
+              ItemSeparatorComponent={() => <View style={{ height: 0 }} />}
+              initialNumToRender={10}
+              maxToRenderPerBatch={5}
+              windowSize={10}
+              removeClippedSubviews={true}
             />
           )}
 
@@ -460,9 +432,8 @@ const fetchProducts = async (dealerId: number) => {
             message={alertMsg}
             onClose={() => setAlertVisible(false)}
           />
-          
-          {/* Bottom spacing for tab bar */}
-          <View className="h-4" />
+
+          <View style={{ height: 16 }} />
         </ScrollView>
       </RefreshWrapper>
 
@@ -470,3 +441,105 @@ const fetchProducts = async (dealerId: number) => {
     </SafeAreaView>
   );
 }
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#F9FAFB',
+  },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 100,
+  },
+  pageTitle: {
+    fontSize: 22,
+    fontWeight: '500',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  pageSubtitle: {
+    fontSize: 13,
+    color: '#6B7280',
+    marginBottom: 12,
+  },
+  cartStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 12,
+    borderWidth: 0.5,
+    borderColor: '#BFDBFE',
+    gap: 8,
+  },
+  cartStripBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#185FA5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cartStripBadgeText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#fff',
+  },
+  cartStripText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#185FA5',
+    fontWeight: '500',
+  },
+  cartStripTotal: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#185FA5',
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 8,
+  },
+  searchInput: {
+    flex: 1,
+    height: 42,
+    borderWidth: 0.5,
+    borderColor: '#D1D5DB',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    backgroundColor: '#fff',
+    fontSize: 14,
+    color: '#111827',
+  },
+  micBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#185FA5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    textAlign: 'center',
+    color: '#9CA3AF',
+    marginTop: 40,
+    fontSize: 14,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalImage: {
+    width: '90%',
+    height: '70%',
+    borderRadius: 10,
+  },
+});

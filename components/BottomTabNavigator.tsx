@@ -7,6 +7,7 @@ import type { RootStackParamList } from '../types/navigation';
 import { EventRegister } from 'react-native-event-listeners';
 import { Feather, MaterialIcons, Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../context/ThemeContext';
+import { useCart } from '../context/CartContext';
 
 interface TabItem {
   name: string;
@@ -22,31 +23,25 @@ export default function BottomTabNavigator() {
   const { colors } = useTheme();
 
   const [role, setRole] = useState<string | null>(null);
-  const [cartCount, setCartCount] = useState(0);
+  const { cartCount } = useCart();
 
   useEffect(() => {
-    const loadData = async () => {
+    const loadRole = async () => {
       const userStr = await AsyncStorage.getItem('user');
-      const cartStr = await AsyncStorage.getItem('cart');
-
       if (userStr) {
         const user = JSON.parse(userStr);
         setRole(user?.role);
       }
-
-      if (cartStr) {
-        const cart: Record<string, number> = JSON.parse(cartStr);
-        const count = Object.values(cart).reduce((sum, qty) => sum + qty, 0);
-        setCartCount(count);
-      }
     };
+    loadRole();
+  }, []);
 
-    loadData();
-
+  useEffect(() => {
     const listener = EventRegister.addEventListener('cartChanged', (count) => {
-      if (typeof count === 'number') setCartCount(count);
+      if (typeof count === 'number') {
+        // Context already emits, badge uses context cartCount
+      }
     });
-
     return () => {
       EventRegister.removeEventListener(listener as string);
     };
@@ -142,11 +137,11 @@ export default function BottomTabNavigator() {
             >
               <View className="relative">
                 {tab.icon(isActive)}
-                {tab.badge && tab.badge > 0 && (
+                {tab.badge !== undefined && tab.badge > 0 ? (
                   <View className="absolute -top-1 -right-2 bg-red-500 rounded-full min-w-[18px] h-[18px] items-center justify-center">
                     <Text className="text-white text-[10px] font-bold">{tab.badge > 99 ? '99+' : tab.badge}</Text>
                   </View>
-                )}
+                ) : null}
               </View>
               <Text 
                 style={{ color: isActive ? colors.primary : colors.textSecondary }}

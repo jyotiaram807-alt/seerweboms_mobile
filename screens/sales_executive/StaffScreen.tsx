@@ -1,43 +1,20 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState, memo } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TextInput,
-  FlatList,
-  Pressable,
-  ActivityIndicator,
-  Linking,
-  Platform,
-  Image,
-  Modal
+  View, Text, ScrollView, TextInput, FlatList,
+  Pressable, ActivityIndicator, Linking, Platform, Modal
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { EventRegister } from 'react-native-event-listeners';
 import BottomTabNavigator from 'components/BottomTabNavigator';
 import CustomAlert from 'components/CustomAlert';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
-import { apiUrl } from 'apiurl';
-import { MinusCircle, PlusCircle } from 'lucide-react-native';
-import { ImageSourcePropType } from 'react-native';
+import { cachedGet } from 'src/lib/services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Navbar from 'components/Navbar';
+import ProductCart, { Product, ProductVariant, CartItem } from 'components/ProductCart';
+import { useCart } from '../../context/CartContext';
 
 /* -------------------- INTERFACES -------------------- */
-
-interface Product {
-  id: number;
-  name: string;
-  brand: string;
-  model: string;
-  price: number;
-  stock: number;
-  description: string;
-  dealerid: number;
-  created_at: string;
-  image: string;
-}
 
 interface Retailer {
   id: number;
@@ -48,168 +25,135 @@ interface Retailer {
   city: string;
 }
 
-interface ImagePopupProps {
-  visible: boolean;
-  image: string | null;
-  onClose: () => void;
+/* -------------------- MEMOIZED PRODUCT CARD -------------------- */
+
+interface RenderItemProps {
+  item: Product;
+  cart: CartItem[];
+  onAddVariant: (productId: number, variant: ProductVariant, qty: number) => void;
+  onUpdateVariantQty: (productId: number, variantId: number, qty: number) => void;
+  onRemoveVariant: (productId: number, variantId: number) => void;
+  onAddSimple: (productId: number) => void;
+  onUpdateSimpleQty: (productId: number, qty: number) => void;
+  onRemoveSimple: (productId: number) => void;
 }
 
-/* -------------------- IMAGE POPUP COMPONENT -------------------- */
-
-const ImagePopup: React.FC<ImagePopupProps> = ({ visible, image, onClose }) => {
-  if (!image) return null;
-
-  return (
-    <Modal transparent visible={visible} animationType="fade">
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: 'rgba(0,0,0,0.8)',
-          justifyContent: 'center',
-          alignItems: 'center',
-        }}
-      >
-        <Pressable
-          onPress={onClose}
-          style={{
-            position: 'absolute',
-            top: 40,
-            right: 20,
-            backgroundColor: 'white',
-            padding: 6,
-            borderRadius: 20,
-            elevation: 6,
-          }}
-        >
-          <Ionicons name="close" size={26} color="black" />
-        </Pressable>
-
-        <Image
-          source={{ uri: image }}
-          style={{
-            width: '80%',
-            height: '60%',
-            resizeMode: 'contain',
-            borderRadius: 12,
-            // backgroundColor: 'white',
-          }}
-        />
-      </View>
-    </Modal>
-  );
-};
+const MemoProductCard = memo(({
+  item, cart,
+  onAddVariant, onUpdateVariantQty, onRemoveVariant,
+  onAddSimple, onUpdateSimpleQty, onRemoveSimple,
+}: RenderItemProps) => (
+  <ProductCart
+    product={item}
+    showSize={Number(item.business_type_id) === 2}
+    cart={cart}
+    onAddVariant={onAddVariant}
+    onUpdateVariantQty={onUpdateVariantQty}
+    onRemoveVariant={onRemoveVariant}
+    onAddSimple={onAddSimple}
+    onUpdateSimpleQty={onUpdateSimpleQty}
+    onRemoveSimple={onRemoveSimple}
+  />
+));
+MemoProductCard.displayName = 'MemoProductCard';
 
 /* -------------------- MAIN SCREEN -------------------- */
 
 export default function StaffScreen() {
   const navigation = useNavigation();
-  const [user, setUser] = useState<any>(null);
-  const [retailers, setRetailers] = useState<Retailer[]>([]);
+  const { cart, addToCart, updateCartQuantity, removeFromCart } = useCart();
+
+  const [user, setUser]                           = useState<any>(null);
+  const [retailers, setRetailers]                 = useState<Retailer[]>([]);
   const [filteredRetailers, setFilteredRetailers] = useState<Retailer[]>([]);
-  const [selectedRetailer, setSelectedRetailer] = useState<Retailer | null>(null);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [filteredProducts, setFilteredProducts] = useState<Product[]>([]);
-  const [search, setSearch] = useState('');
-  const [cart, setCart] = useState<Record<number, number>>({});
-  const [tempQty, setTempQty] = useState<Record<number, number>>({});
-  const [totalItems, setTotalItems] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [alertVisible, setAlertVisible] = useState(false);
-  const [alertMsg, setAlertMsg] = useState('');
-  const [isImageOpen, setIsImageOpen] = useState(false);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'customers' | 'products'>('customers');
+  const [selectedRetailer, setSelectedRetailer]   = useState<Retailer | null>(null);
+  const [products, setProducts]                   = useState<Product[]>([]);
+  const [filteredProducts, setFilteredProducts]   = useState<Product[]>([]);
+  const [search, setSearch]                       = useState('');
+  const [loading, setLoading]                     = useState(true);
+  const [alertVisible, setAlertVisible]           = useState(false);
+  const [alertMsg, setAlertMsg]                   = useState('');
+  const [activeTab, setActiveTab]                 = useState<'customers' | 'products'>('customers');
 
   /* -------------------- ALERT -------------------- */
-  const showAlert = (msg: string) => {
+
+  const showAlert = useCallback((msg: string) => {
     setAlertMsg(msg);
     setAlertVisible(true);
-  };
+  }, []);
+
+  /* -------------------- CART HELPERS (same as RetailerHome) -------------------- */
+
+  const handleAddVariant = useCallback(
+    (productId: number, variant: ProductVariant, qty: number) => {
+      addToCart({
+        productId,
+        variantId: variant.id,
+        size: variant.size,
+        color: variant.color,
+        price: variant.rate ?? variant.mrp ?? 0,
+        quantity: qty,
+        stock: variant.qty,
+      });
+      showAlert('Added to cart');
+    },
+    [addToCart, showAlert]
+  );
+
+  const handleUpdateVariantQty = useCallback(
+    (productId: number, variantId: number, qty: number) => {
+      if (qty <= 0) removeFromCart(productId, variantId);
+      else updateCartQuantity(productId, variantId, Math.min(qty, 999));
+    },
+    [removeFromCart, updateCartQuantity]
+  );
+
+  const handleRemoveVariant = useCallback(
+    (productId: number, variantId: number) => removeFromCart(productId, variantId),
+    [removeFromCart]
+  );
+
+  const handleAddSimple = useCallback(
+    (productId: number) => {
+      const product = products.find((p) => p.id === productId);
+      if (!product || product.stock === 0) return;
+      addToCart({ productId, variantId: 0, price: product.price, quantity: 1, stock: product.stock });
+      showAlert('Added to cart');
+    },
+    [products, addToCart, showAlert]
+  );
+
+  const handleUpdateSimpleQty = useCallback(
+    (productId: number, qty: number) => {
+      if (qty <= 0) removeFromCart(productId, 0);
+      else updateCartQuantity(productId, 0, Math.min(qty, 999));
+    },
+    [removeFromCart, updateCartQuantity]
+  );
+
+  const handleRemoveSimple = useCallback(
+    (productId: number) => removeFromCart(productId, 0),
+    [removeFromCart]
+  );
+
+  /* -------------------- CART TOTALS -------------------- */
+
+  const totalCartItems = useMemo(
+    () => cart.reduce((s, c) => s + c.quantity, 0),
+    [cart]
+  );
+
+  const cartTotalPrice = useMemo(
+    () => cart.reduce((s, c) => s + c.price * c.quantity, 0).toLocaleString('en-IN'),
+    [cart]
+  );
 
   /* -------------------- RETAILER SELECTION -------------------- */
+
   const handleSelectRetailer = async (retailer: Retailer) => {
     setSelectedRetailer(retailer);
     await AsyncStorage.setItem('selectedRetailer', JSON.stringify(retailer));
-
-    // 🔥 AUTO SWITCH TO PRODUCTS TAB
     setActiveTab('products');
-  };
-
-  /* -------------------- QUANTITY INCREMENT/DECREMENT -------------------- */
-
-  const incrementQty = (productId: number) => {
-    setTempQty(prev => ({ ...prev, [productId]: (prev[productId] || 0) + 1 }));
-  };
-
-  const decrementQty = (productId: number) => {
-    setTempQty(prev => {
-      const current = prev[productId] || 0;
-      if (current <= 1) {
-        const copy = { ...prev };
-        delete copy[productId];
-        return copy;
-      }
-      return { ...prev, [productId]: current - 1 };
-    });
-  };
-
-  /* -------------------- LOAD CART -------------------- */
-  useEffect(() => {
-    const loadCart = async () => {
-      const storedCart = await AsyncStorage.getItem('cart');
-      if (storedCart) {
-        const parsed = JSON.parse(storedCart);
-        const formatted: Record<number, number> = {};
-        Object.keys(parsed).forEach(k => {
-          formatted[Number(k)] = parsed[k];
-        });
-        setCart(formatted);
-        setTotalItems(Object.values(formatted).reduce((sum, q) => sum + q, 0));
-      }
-    };
-
-    loadCart();
-
-    const listener = EventRegister.addEventListener('cartChanged', async () => {
-      const storedCart = await AsyncStorage.getItem('cart');
-      if (storedCart) {
-        const parsed = JSON.parse(storedCart);
-        const formatted: Record<number, number> = {};
-        Object.keys(parsed).forEach(k => {
-          formatted[Number(k)] = parsed[k];
-        });
-        setCart(formatted);
-        setTotalItems(Object.values(formatted).reduce((sum, q) => sum + q, 0));
-      }
-    });
-
-    return () => {
-      if (typeof listener === 'string') {
-        EventRegister.removeEventListener(listener);
-      }
-    };
-  }, []);
-
-  /* -------------------- ADD TO CART -------------------- */
-
-  const addToCart = async (productId: number) => {
-    const qty = tempQty[productId] || 0;
-    if (!qty) return showAlert('⚠️ Please select quantity before adding to cart');
-
-    const updatedCart = { ...cart, [productId]: (cart[productId] || 0) + qty };
-    setCart(updatedCart);
-    setTotalItems(Object.values(updatedCart).reduce((sum, q) => sum + q, 0));
-
-    await AsyncStorage.setItem('cart', JSON.stringify(updatedCart));
-    EventRegister.emit('cartChanged');
-
-    setTempQty(prev => {
-      const copy = { ...prev };
-      delete copy[productId];
-      return copy;
-    });
-
-    showAlert('Added to cart!');
   };
 
   /* -------------------- SEARCH -------------------- */
@@ -217,414 +161,317 @@ export default function StaffScreen() {
   const handleRetailerSearch = (query: string) => {
     if (!query.trim()) return setFilteredRetailers(retailers);
     const lower = query.toLowerCase();
-
-    setFilteredRetailers(
-      retailers.filter(r =>
-        r.name.toLowerCase().includes(lower) ||
-        r.store_name.toLowerCase().includes(lower) ||
-        r.phone.includes(lower) ||
-        r.address.toLowerCase().includes(lower)
-      )
-    );
+    setFilteredRetailers(retailers.filter(r =>
+      r.name.toLowerCase().includes(lower) ||
+      r.store_name.toLowerCase().includes(lower) ||
+      r.phone.includes(lower) ||
+      r.address.toLowerCase().includes(lower)
+    ));
   };
 
-  const handleProductSearch = (query: string) => {
+  const handleProductSearch = useCallback((query: string) => {
     setSearch(query);
-
-    if (!query.trim()) return setFilteredProducts(products);
-
-    const lower = query.toLowerCase();
-
+    const q = query.toLowerCase();
     setFilteredProducts(
-      products.filter(
-        p =>
-          p.name.toLowerCase().includes(lower) ||
-          p.brand.toLowerCase().includes(lower) ||
-          p.model.toLowerCase().includes(lower)
+      !query.trim() ? products : products.filter(p =>
+        p.name.toLowerCase().includes(q) ||
+        (p.brand ?? '').toLowerCase().includes(q) ||
+        (p.model ?? '').toLowerCase().includes(q) ||
+        Object.values(p.attributes ?? {}).some(v => String(v).toLowerCase().includes(q))
       )
     );
-  };
+  }, [products]);
 
   /* -------------------- FETCH DATA -------------------- */
 
   useEffect(() => {
+    let cancelled = false;
     const fetchData = async () => {
       setLoading(true);
-
       try {
-        const [userData, storedCart, token] = await Promise.all([
+        const [userData, token] = await Promise.all([
           AsyncStorage.getItem('user'),
-          AsyncStorage.getItem('cart'),
           AsyncStorage.getItem('token'),
         ]);
-
-        if (!userData || !token) {
-          navigation.navigate('Login' as never);
-          return;
-        }
+        if (cancelled) return;
+        if (!userData || !token) { navigation.navigate('Login' as never); return; }
 
         const userObj = JSON.parse(userData);
         setUser(userObj);
+        if (userObj.role !== 'staff') { navigation.navigate('RetailerHome' as never); return; }
 
-        if (userObj.role !== 'staff') {
-          navigation.navigate('RetailerHome' as never);
-          return;
-        }
-
-        const [retRes, prodRes] = await Promise.all([
-          fetch(`${apiUrl}/staff/get_retailers_by_executive?executiveid=${userObj.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          fetch(`${apiUrl}/products?dealerid=${userObj.dealer_id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
+        const [retData, prodData] = await Promise.all([
+          cachedGet(`/staff/get_retailers_by_executive?executiveid=${userObj.id}`, token),
+          cachedGet(`/products?dealerid=${userObj.dealer_id}`, token),
         ]);
-
-        const [retData, prodData] = await Promise.all([retRes.json(), prodRes.json()]);
+        if (cancelled) return;
 
         setRetailers(retData);
         setFilteredRetailers(retData);
 
-        const formattedProducts = (prodData || []).map((item: any) => ({
-          id: item.id,
-          name: item.name,
-          brand: item.brand,
-          model: item.model,
-          price: Number(item.price),
-          stock: item.stock,
-          description: item.description,
-          dealerid: item.dealerid,
-          created_at: item.created_at,
-          image: item.image,
-        }));
+        // Same mapping as RetailerHome
+        const formatted: Product[] = (prodData || []).map((item: any) => {
+          let attrs: Record<string, string> = {};
+          if (item.attributes) {
+            attrs = typeof item.attributes === 'string'
+              ? JSON.parse(item.attributes) : item.attributes;
+          }
+          return {
+            id:               Number(item.id),
+            name:             item.name || '',
+            brand:            item.brand || attrs.brand || '',
+            model:            item.model || attrs.model || '',
+            price:            Number(item.price),
+            stock:            Number(item.stock),
+            description:      item.description || '',
+            dealerid:         Number(item.dealerid),
+            image:            item.image || null,
+            attributes:       attrs,
+            business_type_id: item.business_type_id ?? null,
+            variants:         item.variants ?? [],
+          };
+        });
 
-        setProducts(formattedProducts);
-        setFilteredProducts(formattedProducts);
+        setProducts(formatted);
+        setFilteredProducts(formatted);
 
-        if (storedCart) {
-          const parsedCart: Record<number, number> = {};
-          const cartObj = JSON.parse(storedCart);
-
-          Object.keys(cartObj).forEach(key => {
-            parsedCart[Number(key)] = cartObj[key];
-          });
-
-          setCart(parsedCart);
-          setTotalItems(Object.values(parsedCart).reduce((sum, q) => sum + q, 0));
-        }
       } catch (err) {
         console.error('Error fetching data:', err);
-        setRetailers([]);
-        setFilteredRetailers([]);
-        setProducts([]);
-        setFilteredProducts([]);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     };
-
     fetchData();
-  }, []);
+    return () => { cancelled = true; };
+  }, [navigation]);
 
-  /* -------------------- IMAGE SOURCE -------------------- */
+  /* -------------------- RENDER ITEM -------------------- */
 
-  const getImageSource = (img: string | null): ImageSourcePropType | undefined => {
-    if (!img) return undefined;
-
-    if (img.startsWith("http")) return { uri: img };
-
-    return { uri: `${apiUrl}/${img}` };
-  };
-
-  /* -------------------- PRODUCT CARD RENDER -------------------- */
-
-  const renderProduct = ({ item }: { item: Product }) => {
-    const hasImage = item.image && item.image !== '';
-
-  return (
-      <View
-        style={{
-          backgroundColor: '#fff',
-          padding: 12,
-          marginBottom: 16,
-          borderRadius: 12,
-          shadowColor: '#000',
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
-          elevation: 3,
-        }}
-      >
-
-      
-        <View style={{ flexDirection: 'row' }}>
-          {hasImage && (
-            <Pressable
-              onPress={() => {
-                setSelectedImage(`${apiUrl}/${item.image}`);
-                setIsImageOpen(true);
-              }}
-              style={{ marginRight: 12 }}
-            >
-              <Image
-                source={getImageSource(item.image)}
-                style={{
-                  width: 80,
-                  height: 80,
-                  borderRadius: 8,
-                  backgroundColor: '#f3f3f3',
-                }}
-                resizeMode="cover"
-              />
-            </Pressable>
-          )}
-
-          <View style={{ flex: 1 }}>
-            <Text style={{ fontSize: 16, fontWeight: '600' }}>{item.name}</Text>
-            <Text style={{ color: '#6b7280', marginTop: 2 }}>{item.model}</Text>
-
-            <Text style={{ color: '#2563eb', fontSize: 18, fontWeight: '700', marginTop: 8 }}>
-              ₹ {item.price.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-            </Text>
-
-            <View
-              style={{
-                flexDirection: 'row',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginTop: 12,
-              }}
-            >
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Pressable onPress={() => decrementQty(item.id)} style={{ padding: 4 }}>
-                  <MinusCircle size={22} color="red" />
-                </Pressable>
-
-                <Text style={{ fontSize: 17, marginHorizontal: 10 }}>
-                  {tempQty[item.id] || cart[item.id] || 0}
-                </Text>
-
-                <Pressable onPress={() => incrementQty(item.id)} style={{ padding: 4 }}>
-                  <PlusCircle size={22} color="green" />
-                </Pressable>
-              </View>
-
-              <Pressable
-                style={{
-                  backgroundColor: '#2563eb',
-                  paddingVertical: 8,
-                  paddingHorizontal: 14,
-                  borderRadius: 8,
-                }}
-                onPress={() => addToCart(item.id)}
-              >
-                <Text style={{ color: 'white', fontWeight: '600' }}>Add to Cart</Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </View>
-    );
-  };
+  const renderItem = useCallback(({ item }: { item: Product }) => (
+    <MemoProductCard
+      item={item}
+      cart={cart}
+      onAddVariant={handleAddVariant}
+      onUpdateVariantQty={handleUpdateVariantQty}
+      onRemoveVariant={handleRemoveVariant}
+      onAddSimple={handleAddSimple}
+      onUpdateSimpleQty={handleUpdateSimpleQty}
+      onRemoveSimple={handleRemoveSimple}
+    />
+  ), [cart, handleAddVariant, handleUpdateVariantQty, handleRemoveVariant,
+      handleAddSimple, handleUpdateSimpleQty, handleRemoveSimple]);
 
   /* -------------------- MAIN RETURN -------------------- */
 
   return (
-  <SafeAreaView className="flex-1" edges={['top']}>
-    <Navbar user={user?.name} />
-    {/* ---------- TOP TABS ---------- */}
-    <View
-      style={{
-        backgroundColor: '#fff',
-        padding: 12,
-        margin: 12,
-        borderRadius: 12,
-        shadowColor: '#000',
-        shadowOpacity: 0.1,
-        shadowRadius: 4,
-        elevation: 3,
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F9FAFB' }} edges={['top']}>
+      <Navbar user={user?.name} />
+
+      {/* ---------- TOP TABS ---------- */}
+      <View style={{
+        backgroundColor: '#fff', padding: 12, margin: 12,
+        borderRadius: 12, elevation: 3,
+        shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 4,
         flexDirection: 'row',
-      }}
-    >
-      <Pressable
-        onPress={() => setActiveTab('customers')}
-        style={{
-          backgroundColor:
-            activeTab === 'customers' ? '#e5e7eb' : 'transparent',
-          paddingVertical: 8,
-          paddingHorizontal: 14,
-          borderRadius: 10,
-          marginRight: 8,
-        }}
-      >
-        <Text style={{ fontWeight: '600' }}>Customers</Text>
-      </Pressable>
+      }}>
+        {(['customers', 'products'] as const).map((tab) => (
+          <Pressable
+            key={tab}
+            onPress={() => setActiveTab(tab)}
+            style={{
+              backgroundColor: activeTab === tab ? '#e5e7eb' : 'transparent',
+              paddingVertical: 8, paddingHorizontal: 14,
+              borderRadius: 10, marginRight: tab === 'customers' ? 8 : 0,
+            }}
+          >
+            <Text style={{ fontWeight: '600', textTransform: 'capitalize' }}>
+              {tab === 'customers' ? 'Customers' : 'Create Order'}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
 
-      <Pressable
-        onPress={() => setActiveTab('products')}
-        style={{
-          backgroundColor:
-            activeTab === 'products' ? '#e5e7eb' : 'transparent',
-          paddingVertical: 8,
-          paddingHorizontal: 14,
-          borderRadius: 10,
-        }}
-      >
-        <Text style={{ fontWeight: '600' }}>Create Order</Text>
-      </Pressable>
-    </View>
-
-    {/* ---------- CUSTOMERS TAB ---------- */}
-    {activeTab === 'customers' && (
-      <ScrollView
-        className="flex-1 px-4"
-        contentContainerStyle={{ paddingBottom: 100 }}
-      >
-        <Text className="text-2xl font-bold mb-2">Select Customer</Text>
-
-        <TextInput
-          placeholder="Search customers..."
-          className="border border-gray-300 rounded-lg px-4 py-2 mb-4 bg-white"
-          onChangeText={handleRetailerSearch}
-        />
-
-        <FlatList
-          data={filteredRetailers}
-          keyExtractor={(r) => r.id.toString()}
-          scrollEnabled={false}
-          renderItem={({ item }) => (
-            <Pressable
-              className={`bg-white p-4 mb-3 rounded-xl shadow ${
-                selectedRetailer?.id === item.id
-                  ? 'border-blue-500 border-2'
-                  : ''
-              }`}
-              onPress={() => handleSelectRetailer(item)}
-            >
-              <View style={{ flexDirection: 'row' }}>
-                <View style={{ flex: 1, paddingRight: 12 }}>
-                  <Text className="font-semibold text-base">
-                    {item.store_name}
-                  </Text>
-                  <Text className="text-gray-500 mt-1">
-                    {item.name} ({item.phone})
-                  </Text>
-                  <Text className="text-gray-500 mt-1" numberOfLines={3}>
-                    {item.address}
-                  </Text>
-                </View>
-
-                {/* Call & Location Buttons */}
-                <View
-                  style={{
-                    width: 60,
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Pressable
-                    onPress={() =>
-                      item.phone
-                        ? Linking.openURL(`tel:${item.phone}`)
-                        : showAlert('Phone not available')
-                    }
-                    style={{
-                      backgroundColor: '#3b82f6',
-                      padding: 8,
-                      borderRadius: 50,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <Ionicons name="call" size={20} color="white" />
-                  </Pressable>
-
-                  <Pressable
-                    onPress={() => {
-                      if (item.address) {
-                        const url = Platform.select({
-                          ios: `maps:0,0?q=${encodeURIComponent(
-                            item.address
-                          )}`,
-                          android: `geo:0,0?q=${encodeURIComponent(
-                            item.address
-                          )}`,
-                        });
-                        if (url) {
-                          Linking.openURL(url);
-                        }
-                      } else showAlert('Address not available');
-                    }}
-                    style={{
-                      backgroundColor: '#10b981',
-                      padding: 8,
-                      borderRadius: 50,
-                    }}
-                  >
-                    <Ionicons name="location" size={20} color="white" />
-                  </Pressable>
-                </View>
-              </View>
-            </Pressable>
-          )}
-        />
-      </ScrollView>
-    )}
-
-    {/* ---------- PRODUCTS TAB ---------- */}
-    {activeTab === 'products' && selectedRetailer && (
-      <ScrollView
-        className="flex-1 px-4"
-        contentContainerStyle={{ paddingBottom: 100 }}
-      >
-        {/* Selected Customer Banner */}
-        <View className="bg-blue-50 rounded-xl p-3 mb-4 flex-row items-center">
-          <Ionicons name="storefront-outline" size={20} color="#3b82f6" />
-          <Text className="ml-2 text-blue-700 font-medium">
-            {selectedRetailer.store_name}
+      {/* ---------- CUSTOMERS TAB ---------- */}
+      {activeTab === 'customers' && (
+        <ScrollView style={{ flex: 1, paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingBottom: 100 }}>
+          <Text style={{ fontSize: 22, fontWeight: '500', marginBottom: 8 }}>
+            Select Customer
           </Text>
-        </View>
 
-        <Text className="text-2xl font-bold mb-2">Products</Text>
-
-        <TextInput
-          placeholder="Search products..."
-          className="border border-gray-300 rounded-lg px-4 py-2 mb-4 bg-white"
-          value={search}
-          onChangeText={handleProductSearch}
-        />
-
-        {loading ? (
-          <ActivityIndicator size="large" color="#5b74f1" />
-        ) : filteredProducts.length === 0 ? (
-          <Text className="text-center text-gray-500 mt-20">
-            No products found.
-          </Text>
-        ) : (
-          <FlatList
-            data={filteredProducts}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={renderProduct}
-            scrollEnabled={false}
+          <TextInput
+            placeholder="Search customers..."
+            style={{
+              borderWidth: 0.5, borderColor: '#D1D5DB', borderRadius: 10,
+              paddingHorizontal: 14, height: 42, backgroundColor: '#fff',
+              marginBottom: 12,
+            }}
+            onChangeText={handleRetailerSearch}
           />
-        )}
-      </ScrollView>
-    )}
 
-    {/* ---------- ALERT ---------- */}
-    <CustomAlert
-      visible={alertVisible}
-      message={alertMsg}
-      onClose={() => setAlertVisible(false)}
-    />
+          <FlatList
+            data={filteredRetailers}
+            keyExtractor={(r) => r.id.toString()}
+            scrollEnabled={false}
+            renderItem={({ item }) => (
+              <Pressable
+                onPress={() => handleSelectRetailer(item)}
+                style={{
+                  backgroundColor: '#fff', padding: 14, marginBottom: 10,
+                  borderRadius: 12, elevation: 2,
+                  borderWidth: selectedRetailer?.id === item.id ? 2 : 0.5,
+                  borderColor: selectedRetailer?.id === item.id ? '#3b82f6' : '#E5E7EB',
+                }}
+              >
+                <View style={{ flexDirection: 'row' }}>
+                  <View style={{ flex: 1, paddingRight: 12 }}>
+                    <Text style={{ fontWeight: '600', fontSize: 15 }}>{item.store_name}</Text>
+                    <Text style={{ color: '#6B7280', marginTop: 2 }}>
+                      {item.name} · {item.phone}
+                    </Text>
+                    <Text style={{ color: '#9CA3AF', marginTop: 2, fontSize: 12 }}
+                      numberOfLines={2}>
+                      {item.address}
+                    </Text>
+                  </View>
 
-    {/* ---------- IMAGE POPUP ---------- */}
-    <ImagePopup
-      visible={isImageOpen}
-      image={selectedImage}
-      onClose={() => setIsImageOpen(false)}
-    />
+                  <View style={{ justifyContent: 'center', alignItems: 'center', gap: 8 }}>
+                    <Pressable
+                      onPress={() => item.phone
+                        ? Linking.openURL(`tel:${item.phone}`)
+                        : showAlert('Phone not available')}
+                      style={{
+                        backgroundColor: '#3b82f6', padding: 8,
+                        borderRadius: 50, marginBottom: 6,
+                      }}
+                    >
+                      <Ionicons name="call" size={18} color="white" />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => {
+                        if (!item.address) return showAlert('Address not available');
+                        const url = Platform.select({
+                          ios: `maps:0,0?q=${encodeURIComponent(item.address)}`,
+                          android: `geo:0,0?q=${encodeURIComponent(item.address)}`,
+                        });
+                        if (url) Linking.openURL(url);
+                      }}
+                      style={{ backgroundColor: '#10b981', padding: 8, borderRadius: 50 }}
+                    >
+                      <Ionicons name="location" size={18} color="white" />
+                    </Pressable>
+                  </View>
+                </View>
+              </Pressable>
+            )}
+          />
+        </ScrollView>
+      )}
 
-    {/* ---------- BOTTOM NAV ---------- */}
-    <BottomTabNavigator />
-  </SafeAreaView>
-);
+      {/* ---------- PRODUCTS TAB ---------- */}
+      {activeTab === 'products' && (
+        <ScrollView style={{ flex: 1, paddingHorizontal: 16 }}
+          contentContainerStyle={{ paddingBottom: 100 }}>
+
+          {/* Selected customer banner / warning */}
+          {selectedRetailer ? (
+            <View style={{
+              backgroundColor: '#EFF6FF', borderRadius: 10,
+              padding: 10, marginBottom: 12, flexDirection: 'row',
+              alignItems: 'center', borderWidth: 0.5, borderColor: '#BFDBFE',
+            }}>
+              <Ionicons name="storefront-outline" size={18} color="#3b82f6" />
+              <Text style={{ marginLeft: 8, color: '#1D4ED8', fontWeight: '500', flex: 1 }}>
+                {selectedRetailer.store_name}
+              </Text>
+              <Pressable onPress={() => setActiveTab('customers')}>
+                <Text style={{ color: '#3b82f6', fontSize: 12 }}>Change</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={{
+              backgroundColor: '#FFFBEB', borderRadius: 10,
+              padding: 10, marginBottom: 12, flexDirection: 'row',
+              alignItems: 'center', borderWidth: 0.5, borderColor: '#FCD34D',
+            }}>
+              <Ionicons name="warning-outline" size={18} color="#D97706" />
+              <Text style={{ marginLeft: 8, color: '#92400E', flex: 1, fontSize: 13 }}>
+                Please select a customer first
+              </Text>
+              <Pressable onPress={() => setActiveTab('customers')}>
+                <Text style={{ color: '#D97706', fontSize: 12, fontWeight: '600' }}>
+                  Go →
+                </Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Cart summary strip */}
+          {totalCartItems > 0 && (
+            <View style={{
+              flexDirection: 'row', alignItems: 'center',
+              backgroundColor: '#EFF6FF', borderRadius: 10,
+              padding: 10, marginBottom: 12,
+              borderWidth: 0.5, borderColor: '#BFDBFE', gap: 8,
+            }}>
+              <View style={{
+                width: 22, height: 22, borderRadius: 11,
+                backgroundColor: '#185FA5', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <Text style={{ fontSize: 11, color: '#fff', fontWeight: '500' }}>
+                  {totalCartItems}
+                </Text>
+              </View>
+              <Text style={{ flex: 1, fontSize: 13, color: '#185FA5', fontWeight: '500' }}>
+                {totalCartItems} item{totalCartItems !== 1 ? 's' : ''} in cart
+              </Text>
+              <Text style={{ fontSize: 13, fontWeight: '500', color: '#185FA5' }}>
+                ₹{cartTotalPrice}
+              </Text>
+            </View>
+          )}
+
+          {/* Search */}
+          <TextInput
+            placeholder="Search by name, brand, or model..."
+            value={search}
+            onChangeText={handleProductSearch}
+            style={{
+              borderWidth: 0.5, borderColor: '#D1D5DB', borderRadius: 10,
+              paddingHorizontal: 14, height: 42, backgroundColor: '#fff',
+              marginBottom: 14, fontSize: 14, color: '#111827',
+            }}
+            placeholderTextColor="#9CA3AF"
+          />
+
+          {loading ? (
+            <ActivityIndicator size="large" color="#185FA5" style={{ marginTop: 40 }} />
+          ) : filteredProducts.length === 0 ? (
+            <Text style={{ textAlign: 'center', color: '#9CA3AF', marginTop: 40 }}>
+              No products found.
+            </Text>
+          ) : (
+            <FlatList
+              data={filteredProducts}
+              keyExtractor={(item) => item.id.toString()}
+              renderItem={renderItem}
+              scrollEnabled={false}
+              initialNumToRender={10}
+              maxToRenderPerBatch={5}
+              windowSize={10}
+              removeClippedSubviews={true}
+            />
+          )}
+        </ScrollView>
+      )}
+
+      <CustomAlert
+        visible={alertVisible}
+        message={alertMsg}
+        onClose={() => setAlertVisible(false)}
+      />
+
+      <BottomTabNavigator />
+    </SafeAreaView>
+  );
 }

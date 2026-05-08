@@ -29,16 +29,13 @@ export default function NavbarScreen() {
       }
 
       if (cartStr) {
-  const cart: Record<string, number> = JSON.parse(cartStr);
-
-  const count = Object.values(cart).reduce(
-    (sum, qty) => sum + qty,
-    0
-  );
-
-  setCartCount(count);
-}
-
+        const cart = JSON.parse(cartStr);
+        // Support both old format { "id": qty } and new format CartItem[]
+        const count = Array.isArray(cart)
+          ? cart.reduce((sum: number, item: any) => sum + (item.quantity ?? 0), 0)
+          : Object.values(cart as Record<string, number>).reduce((sum, qty) => sum + qty, 0);
+        setCartCount(count);
+      }
     };
 
     loadData();
@@ -52,7 +49,7 @@ export default function NavbarScreen() {
     };
   }, []);
 
-  const logout = async () => {
+  const handleLogout = async () => {
     await AsyncStorage.clear();
     navigation.reset({
       index: 0,
@@ -66,7 +63,7 @@ export default function NavbarScreen() {
   return (
     <>
       <StatusBar style="dark" />
-      <SafeAreaView edges={['top']} >
+      <SafeAreaView edges={['top']}>
         <View className="flex-row justify-between items-center px-4 py-3">
           <Text className="text-lg font-bold text-[#566de2]">Seerweb OMS</Text>
 
@@ -160,36 +157,79 @@ export default function NavbarScreen() {
               </>
             )}
 
-            <Pressable onPress={() => setLogoutVisible(true)}>
+            {/* Logout trigger */}
+            <Pressable
+              onPress={() => setLogoutVisible(true)}
+              style={{ flexDirection: 'row', padding: 4, alignItems: 'center' }}
+            >
               <Ionicons name="log-out-outline" size={22} color={inactive} />
             </Pressable>
           </View>
         </View>
 
-        {/* Logout Modal */}
-        <Modal transparent visible={logoutVisible} animationType="fade">
-          <View className="flex-1 bg-black/40 justify-center items-center">
-            <View className="bg-white w-[80%] rounded-xl p-6">
-              <Text className="text-lg font-bold text-center mb-3">Logout</Text>
-              <Text className="text-center mb-6">Are you sure?</Text>
+        {/* ── Logout Confirmation Modal ─────────────────────────────── */}
+        <Modal
+          visible={logoutVisible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setLogoutVisible(false)}
+        >
+          {/* Backdrop — tap outside to dismiss */}
+          <Pressable
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}
+            onPress={() => setLogoutVisible(false)}
+          >
+            {/* Card — stop tap from bubbling to backdrop */}
+            <Pressable
+              onPress={() => {}}
+              style={{ backgroundColor: '#fff', width: '100%', maxWidth: 360, borderRadius: 20, overflow: 'hidden' }}
+            >
+              {/* Icon + title + description */}
+              <View style={{ alignItems: 'center', padding: 24, paddingBottom: 20 }}>
+                <View style={{ backgroundColor: '#fee2e2', padding: 14, borderRadius: 50, marginBottom: 12 }}>
+                  <Feather name="log-out" size={28} color="#ef4444" />
+                </View>
+                <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827', marginBottom: 6 }}>
+                  Confirm Logout
+                </Text>
+                <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center', lineHeight: 20 }}>
+                  Are you sure you want to logout?{'\n'}You'll need to login again to access your account.
+                </Text>
+              </View>
 
-              <View className="flex-row justify-between">
+              {/* Divider */}
+              <View style={{ height: 0.5, backgroundColor: '#e5e7eb' }} />
+
+              {/* Buttons */}
+              <View style={{ flexDirection: 'row' }}>
                 <Pressable
-                  className="bg-gray-200 px-6 py-2 rounded-lg"
                   onPress={() => setLogoutVisible(false)}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    paddingVertical: 15,
+                    alignItems: 'center',
+                    borderRightWidth: 0.5,
+                    borderRightColor: '#e5e7eb',
+                    backgroundColor: pressed ? '#f3f4f6' : 'transparent',
+                  })}
                 >
-                  <Text>Cancel</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#374151' }}>Cancel</Text>
                 </Pressable>
 
                 <Pressable
-                  className="bg-red-500 px-6 py-2 rounded-lg"
-                  onPress={logout}
+                  onPress={handleLogout}
+                  style={({ pressed }) => ({
+                    flex: 1,
+                    paddingVertical: 15,
+                    alignItems: 'center',
+                    backgroundColor: pressed ? '#fca5a5' : 'transparent',
+                  })}
                 >
-                  <Text className="text-white">Logout</Text>
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#ef4444' }}>Yes, Logout</Text>
                 </Pressable>
               </View>
-            </View>
-          </View>
+            </Pressable>
+          </Pressable>
         </Modal>
       </SafeAreaView>
     </>

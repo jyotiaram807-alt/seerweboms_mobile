@@ -17,7 +17,10 @@ import Svg, { Path, Circle, G, Text as SvgText, Line, Rect } from 'react-native-
 import { Ionicons, Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Navbar from 'components/Navbar';
-import { apiGet } from '@/lib/services/api';
+import {
+  cachedGet,
+  apiGet 
+} from '@/lib/services/api';
 import { apiUrl } from 'apiurl';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -70,16 +73,15 @@ interface DonutChartProps {
   size: number;
 }
 
-
-const StatCard: React.FC<StatCardProps> = ({ title, value, icon, bgColor, change, changeLabel = 'vs last month' }) => {
+const StatCard = React.memo<StatCardProps>(({ title, value, icon, bgColor, change, changeLabel = 'vs last month' }) => {
   const isPositive = change !== undefined && change >= 0;
   const isNegative = change !== undefined && change < 0;
-  const changeColor = isPositive ? '#10b981' : '#ef4444'; // green for growth, red for decline
+  const changeColor = isPositive ? '#10b981' : '#ef4444';
   const changeIcon = isPositive ? '↑' : '↓';
   const formattedChange = change !== undefined ? `${isPositive ? '+' : ''}${change.toFixed(1)}%` : null;
 
   return (
-      <View className="bg-white rounded-2xl p-4 shadow-sm flex-1 mx-1 min-w-[140px]" data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, '-')}`}>
+      <View className="bg-white rounded-2xl p-4 shadow-sm flex-1 mx-1 min-w-[140px]">
         <View className="flex-row justify-between items-start mb-2">
           <Text className="text-gray-500 text-xs font-medium">{title}</Text>
           <View style={{ backgroundColor: bgColor }} className="p-2 rounded-xl">
@@ -102,7 +104,8 @@ const StatCard: React.FC<StatCardProps> = ({ title, value, icon, bgColor, change
         )}
       </View>
   );
-};
+});
+
 
 
 const DonutChart: React.FC<DonutChartProps> = ({ data, size }) => {
@@ -638,7 +641,7 @@ export default function RetailerDashboard() {
             
             <Pressable 
               className="bg-blue-600 rounded-xl py-4 px-5 flex-row items-center justify-center mb-3"
-              onPress={() => navigation.navigate('RetailerHome')}
+              onPress={() => navigation.replace('RetailerHome')}
               data-testid="browse-products-btn"
             >
               <Ionicons name="grid-outline" size={20} color="white" />
@@ -647,7 +650,7 @@ export default function RetailerDashboard() {
 
             <Pressable 
               className="bg-white border border-gray-200 rounded-xl py-4 px-5 flex-row items-center justify-center mb-3"
-              onPress={() => navigation.navigate('RetailerOrderScreen')}
+              onPress={() => navigation.replace('RetailerOrderScreen')}
               data-testid="view-all-orders-action-btn"
             >
               <Feather name="shopping-cart" size={20} color="#374151" />
@@ -656,7 +659,7 @@ export default function RetailerDashboard() {
 
             <Pressable 
               className="bg-white border border-gray-200 rounded-xl py-4 px-5 flex-row items-center justify-center"
-              onPress={() => navigation.navigate('Cart')}
+              onPress={() => navigation.replace('Cart')}
               data-testid="go-to-cart-btn"
             >
               <Feather name="shopping-bag" size={20} color="#374151" />

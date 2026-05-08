@@ -4,6 +4,7 @@ import './global.css';
 import type { RootStackParamList } from 'types/navigation';
 import { ImageBackground, View, StyleSheet } from 'react-native';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { CartProvider } from './context/CartContext';
 
 import AuthLoadingScreen from './screens/AuthLoadingScreen';
 import LoginScreen from './screens/LoginScreen';
@@ -78,8 +79,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppContent />
-    </ThemeProvider>
+    <CartProvider>
+      <ThemeProvider>
+        <AppContent />
+      </ThemeProvider>
+    </CartProvider>
   );
 }
