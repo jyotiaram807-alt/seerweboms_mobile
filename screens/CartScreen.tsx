@@ -3,7 +3,6 @@ import {
   View,
   Text,
   ScrollView,
-  TouchableOpacity,
   ActivityIndicator,
   Alert,
   Modal,
@@ -247,7 +246,7 @@ export default function CartScreen() {
             <View key={row.key} className="bg-white p-4 mb-3 rounded-xl shadow">
               <View className="flex-row items-start">
                 {row.imageUri ? (
-                  <TouchableOpacity
+                  <Pressable
                     onPress={() => {
                       setSelectedImageUri(row.imageUri);
                       setImageModalVisible(true);
@@ -259,7 +258,7 @@ export default function CartScreen() {
                       className="w-20 h-20 rounded-lg mr-3"
                       resizeMode="cover"
                     />
-                  </TouchableOpacity>
+                  </Pressable>
                 ) : (
                   <View className="w-20 h-20 bg-gray-100 rounded-lg mr-3 items-center justify-center">
                     <Text className="text-gray-400 text-xs">No image</Text>
@@ -284,16 +283,16 @@ export default function CartScreen() {
                 </Text>
 
                 <View className="flex-row items-center">
-                  <TouchableOpacity onPress={() => decrement(p.id)}>
+                  <Pressable onPress={() => decrement(row.productId, row.variantId, row.quantity)}>
                     <Text>-</Text>
-                  </TouchableOpacity>
-                  <Text className="mx-3">{cart[p.id]}</Text>
-                  <TouchableOpacity onPress={() => increment(p.id)}>
+                  </Pressable>
+                  <Text className="mx-3">{row.quantity}</Text>
+                  <Pressable onPress={() => increment(row.productId, row.variantId, row.quantity)}>
                     <Text>+</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
 
-                <TouchableOpacity
+                <Pressable
                   onPress={() => {
                     setRemoveItem({
                       productId: row.productId,
@@ -305,7 +304,7 @@ export default function CartScreen() {
                   className="ml-2"
                 >
                   <Feather name="trash-2" size={20} color="red" />
-                </TouchableOpacity>
+                </Pressable>
               </View>
             </View>
           ))
@@ -329,14 +328,14 @@ export default function CartScreen() {
               {totalItems} item{totalItems !== 1 ? "s" : ""} · ₹{totalPrice.toLocaleString("en-IN")}
             </Text>
             <View className="flex-row justify-between">
-              <TouchableOpacity onPress={() => setConfirmModal(false)}>
+              <Pressable onPress={() => setConfirmModal(false)}>
                 <Text className="text-gray-600">Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={submitOrder} disabled={isSubmitting}>
+              </Pressable>
+              <Pressable onPress={submitOrder} disabled={isSubmitting}>
                 <Text className="text-blue-600 font-semibold">
                   {isSubmitting ? "Submitting…" : "Confirm"}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>
@@ -353,10 +352,10 @@ export default function CartScreen() {
               </Text>
             )}
             <View className="flex-row justify-between">
-              <TouchableOpacity onPress={() => setRemoveModal(false)}>
+              <Pressable onPress={() => setRemoveModal(false)}>
                 <Text className="text-gray-600">Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
+              </Pressable>
+              <Pressable
                 onPress={() => {
                   if (removeItem) {
                     removeFromCart(removeItem.productId, removeItem.variantId);
@@ -366,7 +365,7 @@ export default function CartScreen() {
                 }}
               >
                 <Text className="text-red-600 font-semibold">Remove</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>

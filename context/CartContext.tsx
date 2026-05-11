@@ -208,7 +208,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // ── DEBOUNCED Persist + emit (300ms) ────────────────────────────────────────
   useEffect(() => {
-    let timeoutId: NodeJS.Timeout;
+    let timeoutId: ReturnType<typeof setTimeout>;
     
     const saveAndEmit = async () => {
       try {
